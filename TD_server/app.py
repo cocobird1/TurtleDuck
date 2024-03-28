@@ -29,6 +29,13 @@ CREATE TABLE IF NOT EXISTS query_log (
     FOREIGN KEY (user_id) REFERENCES user(user_id)
 );
 """)
+con.execute("""
+CREATE TABLE IF NOT EXISTS table_metadata (
+    table_name TEXT PRIMARY KEY,
+    user_id_column TEXT
+);
+""")
+
 con.execute("INSERT INTO user (user_id, username, admin, password) VALUES (?, ?, ?, ?)", None, (0, "William", False, "Password"))
 
 uploaded = False
@@ -58,11 +65,18 @@ def log_query(query, user_id=None, query_id=None, query_plan=None):
     print(query, user_id, query_id, query_plan)
     log_id = generate_new_log_id()
 
-    print('bin')
+    if user_id is not None:
+        user_exists = con.execute("SELECT EXISTS(SELECT 1 FROM user WHERE user_id = ?)", None, (user_id,)).fetchone()[0]
+        if not user_exists:
+            username = f"User_{user_id}"
+            admin = False  # Default to non-admin; adjust based on your requirements
+            password = "default_password"  # Consider a secure way to handle passwords
+            con.execute("INSERT INTO user (user_id, username, admin, password) VALUES (?, ?, ?, ?)", None, (user_id, username, admin, password))
+
     #con.execute("SELECT 1")
     query = query.replace("'", "''")
+    
     con.execute(f"INSERT INTO query_log (query_id, query_text, query_plan, user_id, log_id) VALUES ({query_id}, '{query}', '{query_plan}', '{user_id}', {log_id})")
-    print('foo')
     print(con.execute("SELECT * FROM query_log"), None)
 
 @app.route('/')
@@ -73,7 +87,7 @@ def hello_world():
 def upload():
     try:
         # Attempt to select from the table.
-        df = con.execute("SELECT * FROM df_global2").df()
+        df = con.execute("SELECT * FROM df_global").df()
         return render_template('display_df.html', df=df.to_html(classes='table'))
     except ProgrammingError:
         # If the table does not exist, catch the exception and return the upload template.
@@ -111,11 +125,13 @@ def login_backend():
 
 @app.route('/upload-csv/<analyst_name>', methods=['POST'])
 def upload_csv(analyst_name):
-    print("uploading")
     if 'file' not in request.files:
         return jsonify({'error': 'No file part in the request'}), 400
 
     file = request.files['file']
+    user_id_column = request.form.get('userid_column')
+    if(user_id_column == None):
+        user_id_column = "User_ID"
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
 
@@ -126,17 +142,15 @@ def upload_csv(analyst_name):
 
         # Load the CSV file into a pandas DataFrame
         df_global = pd.read_csv(file_path)
+        con.execute("""
+        INSERT INTO table_metadata (table_name, user_id_column) VALUES (?, ?)
+        ON CONFLICT(table_name) DO UPDATE SET user_id_column = excluded.user_id_column
+        """, None, ('df_global', user_id_column))
 
         # Register the DataFrame as a table in smokedduck
-        con.register('df_global', df_global)
-        con.execute('CREATE TABLE df_global2 AS (SELECT * FROM df_global)')
-        uploaded = True
+        # con.register('df_global', df_global)
+        con.execute('CREATE TABLE df_global AS (SELECT * FROM df_global)')
         return render_template('display_df.html', df=df_global.to_html(classes='table'))
-        return jsonify({
-            'message': 'File successfully uploaded and DataFrame registered in smokedduck',
-            'shape': df_global.shape,
-            'columns': df_global.columns.tolist()
-        })
 
 @app.route('/query-df/<analyst_id>', methods=['POST'])
 def query_df(analyst_id):
@@ -191,10 +205,14 @@ def get_user_queries(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
+def get_user_column_for_table(table_name):
+    user_id_column = con.execute(f"SELECT user_id_column FROM table_metadata WHERE table_name = '{table_name}'").fetchone()
+    return user_id_column[0] if user_id_column else None
+
 @app.route('/provenance/<int:log_id>', methods=['GET'])
 def get_query_log(log_id):
     query_log = con.execute(f"SELECT * FROM query_log WHERE log_id = {log_id}").df()
-    
+    print(query_log)
     # Set parameters for lineage tracing based on the query log
     con.query_id = query_log.loc[0, 'query_id']
     con.query_plan = json.loads(query_log.loc[0, 'query_plan'])
@@ -204,17 +222,20 @@ def get_query_log(log_id):
     print(query_lineage)
 
     # Fetch user data
-    df_users = con.execute("SELECT * FROM df_global2").fetchdf()
-    df_users = df_users.reset_index().rename(columns={'index': 'df_global2'})
+    df_users = con.execute("SELECT * FROM df_global").fetchdf()
+    df_users = df_users.reset_index().rename(columns={'index': 'df_global'})
     print(df_users)
     
     # Join the lineage data with user data
-    df_joined = pd.merge(query_lineage, df_users, on='df_global2', how='left')
+    df_joined = pd.merge(query_lineage, df_users, on='df_global', how='left')
+    df_joined['Analyst'] = query_log.loc[0, 'user_id']
+    print("joined")
     print(df_joined)
     
     # Select only the Name and UserID columns
-    df_filtered = df_joined[['Name', 'User_ID']]
+    df_filtered = df_joined[['Name', get_user_column_for_table("df_global"), 'Analyst']]
     print(df_filtered)
+    
     
     # Return the filtered DataFrame as JSON
     return jsonify(df_filtered.to_json(orient='records'))
