@@ -1,0 +1,94 @@
+<!-- templates/upload_csv.html -->
+{% extends "base.html" %}
+<script>
+  var analyst_name = "hi";
+</script>
+{% block content %}
+<h2>Upload CSV for Analyst: {{ analyst_name }}</h2>
+<form id="uploadForm" action="/upload-csv/william" method="post" enctype="multipart/form-data">
+  <input type="file" name="file" id="fileInput" required>
+  <input type="submit" value="Upload">
+</form>
+<h2>Uploaded DataFrame</h2>
+<div>
+    {{ df|safe }}
+</div>
+<div id="csvDisplay"></div>
+
+
+<script>
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+        var file = e.target.files[0];
+        if (!file) {
+            return;
+        }
+
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            var contents = e.target.result;
+            displayContents(contents);
+        };
+        reader.readAsText(file);
+    });
+
+    function uploadFile() {
+        var fileInput = document.getElementById('fileInput');
+        var file = fileInput.files[0];
+        if (!file) {
+            alert("Please select a file before clicking 'Upload'");
+            return;
+        }
+
+        var formData = new FormData();
+        formData.append('file', file);
+
+        // Dynamically get the analyst name from the URL or another source
+        var analystName = "william";
+        var uploadUrl = `/upload-csv/${encodeURIComponent(analystName)}`;
+
+        fetch(uploadUrl, {
+            method: 'POST',
+            body: formData,
+        })
+        .then(response => response.json());
+    }
+    
+    function displayContents(contents) {
+        var element = document.getElementById('csvDisplay');
+        element.innerHTML = ''; // Clear previous contents
+
+        // Optional: Parse CSV and display in a more structured format
+        var rows = contents.split('\n');
+        var table = '<table border="1"><thead><tr>';
+        var headers = rows[0].split(',');
+
+        headers.forEach(function(header) {
+            table += '<th>' + escapeHtml(header) + '</th>';
+        });
+        table += '</tr></thead><tbody>';
+
+        for (var i = 1; i < rows.length; i++) {
+            table += '<tr>';
+            var cells = rows[i].split(',');
+            cells.forEach(function(cell) {
+                table += '<td>' + escapeHtml(cell) + '</td>';
+            });
+            table += '</tr>';
+        }
+        table += '</tbody></table>';
+
+        element.innerHTML = table;
+    }
+
+    function escapeHtml(text) {
+        var map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block content %}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Query Log Viewer</title>
+    <!-- Include jQuery -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+</head>
+<body>
+    <h1>Query Log Viewer</h1>
+    <label for="logIdInput">Log ID:</label>
+    <input type="number" id="logIdInput" required>
+    <button id="fetchLogButton">Fetch Log</button>
+    <div id="logResult"></div>
+
+    <script>
+        $(document).ready(function() {
+            $('#fetchLogButton').click(function() {
+                var logId = $('#logIdInput').val();
+                if (logId) {
+                    $.ajax({
+                        url: '/provenance/' + logId,
+                        type: 'GET',
+                        success: function(response) {
+                            // Assuming the response is the JSON string of your lineage data
+                            var data = JSON.parse(response);
+                            var formattedData = JSON.stringify(data, null, 4); // Format JSON string for display
+                            $('#logResult').html('<pre>' + formattedData + '</pre>');
+                        },
+                        error: function(xhr, status, error) {
+                            $('#logResult').html('<p>An error occurred: ' + error + '</p>');
+                        }
+                    });
+                } else {
+                    $('#logResult').html('<p>Please enter a log ID.</p>');
+                }
+            });
+        });
+    </script>
+</body>
+{% endblock %}

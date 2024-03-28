@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<head>
+    <meta charset="UTF-8">
+    <title>Submit Query</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            $("#queryForm").submit(function(event) {
+                event.preventDefault();
+                var analystId = $("#analystId").val();
+                var query = $("#sqlQuery").val();
+                $.ajax({
+                    url: '/query-df/' + analystId,
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ query: query }),
+                    success: function(response) {
+                        $("#result").html(JSON.stringify(response, null, 2));
+                    },
+                    error: function(response) {
+                        $("#result").html(JSON.stringify(response.responseJSON, null, 2));
+                    }
+                });
+            });
+        });
+    </script>
+</head>
+<body>
+    <h2>Submit SQL Query</h2>
+    <form id="queryForm">
+        <label for="analystId">Analyst ID:</label><br>
+        <input type="text" id="analystId" name="analystId" required><br><br>
+        <label for="sqlQuery">SQL Query:</label><br>
+        <textarea id="sqlQuery" name="sqlQuery" rows="4" cols="50" required></textarea><br><br>
+        <input type="submit" value="Submit Query">
+    </form>
+    <h3>Result:</h3>
+    <pre id="result"></pre>
+</body>
+{% endblock %}

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+<head>
+    <meta charset="UTF-8">
+    <title>User Queries</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        function fetchUserQueries(userId) {
+            $.ajax({
+                url: '/user-queries/' + userId,
+                type: 'GET',
+                success: function(response) {
+                    populateTable(response);
+                },
+                error: function(response) {
+                    $("#queriesTable tbody").html('<tr><td colspan="4">Error fetching data: ' + response.responseJSON.error + '</td></tr>');
+                }
+            });
+        }
+
+        function populateTable(queries) {
+            var tableBody = $("#queriesTable tbody");
+            tableBody.empty(); // Clear existing rows
+            queries.forEach(function(log) {
+                var row = `<tr>
+                    <td>${log.log_id}</td>
+                    <td>${log.query_text}</td>
+                    <td>${log.executed_at}</td>
+                    <td>${log.user_id}</td>
+                </tr>`;
+                tableBody.append(row);
+            });
+        }
+
+        $(document).ready(function() {
+            var userId = prompt("Enter User ID:", "1");
+            if (userId) {
+                fetchUserQueries(userId);
+            }
+        });
+    </script>
+</head>
+<body>
+    <h2>User Queries</h2>
+    <table id="queriesTable">
+        <thead>
+            <tr>
+                <th>Log ID</th>
+                <th>Query Text</th>
+                <th>Executed At</th>
+                <th>User ID</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Rows will be added here dynamically -->
+        </tbody>
+    </table>
+</body>
+{% endblock %}
