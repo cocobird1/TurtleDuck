@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+<head>
+    <meta charset="UTF-8">
+    <title>User Operations</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            $("#queryForm").submit(function(event) {
+                event.preventDefault();
+                var userName = $("#user_name").val();
+                $.ajax({
+                    url: '/user-data-by-name/' + encodeURIComponent(userName),
+                    type: 'GET',
+                    success: function(response) {
+                        var formattedResponse = "User ID: " + response.user_id + "<br>" +
+                                                "Username: " + response.username + "<br>" +
+                                                "Admin: " + (response.admin ? "Yes" : "No");
+                        $("#queryResult").html(formattedResponse);
+                    },
+                    error: function(response) {
+                        var errorMessage = response.responseJSON && response.responseJSON.error ? 
+                                           response.responseJSON.error : 
+                                           "An error occurred.";
+                        $("#queryResult").html("Error: " + errorMessage);
+                    }
+                });
+            });
+
+            $("#deleteForm").submit(function(event) {
+                event.preventDefault();
+                var userNameToDelete = $("#user_name_delete").val();
+                $.ajax({
+                    url: '/delete-user-by-name/' + encodeURIComponent(userNameToDelete),
+                    type: 'DELETE',
+                    success: function(response) {
+                        $("#deleteResult").html("Success: " + response.message);
+                    },
+                    error: function(response) {
+                        var errorMessage = response.responseJSON && response.responseJSON.error ? 
+                                           response.responseJSON.error : 
+                                           "An error occurred.";
+                        $("#deleteResult").html("Error: " + errorMessage);
+                    }
+                });
+            });
+        });
+    </script>
+</head>
+<body>
+    <div class="container mt-3">
+        <div class="row">
+            <div class="col-md-6">
+                <h2>Find User Data</h2>
+                <form id="queryForm">
+                    <label for="user_name">User Name:</label><br>
+                    <input type="text" id="user_name" name="user_name" required class="form-control"><br>
+                    <input type="submit" value="Search" class="btn btn-primary">
+                </form>
+                <h3>Query Result:</h3>
+                <div id="queryResult"></div>
+            </div>
+
+            <div class="col-md-6">
+                <h2>Delete User Data</h2>
+                <form id="deleteForm">
+                    <label for="user_name_delete">User Name:</label><br>
+                    <input type="text" id="user_name_delete" name="user_name_delete" required class="form-control"><br>
+                    <input type="submit" value="Delete" class="btn btn-danger">
+                </form>
+                <h3>Delete Result:</h3>
+                <div id="deleteResult"></div>
+            </div>
+        </div>
+    </div>
+</body>
+{% endblock %}

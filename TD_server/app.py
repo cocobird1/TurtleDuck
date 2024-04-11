@@ -110,6 +110,10 @@ def get_queries():
 def get_prov():
    return render_template('provenance.html')   
 
+@app.route('/compliance')
+def get_comp():
+   return render_template('compliance.html')   
+
 @app.route('/login-backend', methods=['POST'])
 def login_backend():
     data = request.get_json() 
@@ -194,20 +198,63 @@ def add_user():
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
-@app.route('/user-queries/<int:user_id>', methods=['GET'])
-def get_user_queries(user_id):
-    if not analyst_exists(user_id):
-        return jsonify({'error': f'User ID {user_id} not found'}), 404
-
+@app.route('/user-data-by-name/<user_name>', methods=['GET'])
+def get_user_data_by_name(user_name):
     try:
-        query_logs = con.execute("SELECT * FROM query_log WHERE user_id = ?", None, (user_id,)).fetchall()
-        return jsonify([{'log_id': log[0], 'query_text': log[1], 'executed_at': log[2], 'user_id': log[3]} for log in query_logs])
+        user_column = get_user_column_for_table("df_global")
+
+        query = f"SELECT * FROM df_global WHERE {user_column} = ?"
+        user_data = con.execute(query, None, (user_name,)).fetchone()
+
+        if user_data:
+            # Convert user_data tuple to a dictionary for jsonify to work correctly.
+            # This assumes you know the structure of your user_data, i.e., the columns returned by your query.
+            # For example, if your columns are user_id, username, full_name, and admin, adjust accordingly.
+            user_data_dict = {
+                'user_id': user_data[0],
+                'username': user_data[1],
+                'full_name': user_data[2],
+                # Add or adjust fields according to the actual structure of your user_data
+            }
+            return jsonify(user_data_dict), 200
+        else:
+            return jsonify({'error': 'User not found'}), 404
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+@app.route('/delete-user-by-name/<user_name>', methods=['DELETE'])
+def delete_user_by_name(user_name):
+    try:
+        user_column = get_user_column_for_table("df_global")
+
+        query = f"DELETE FROM df_global WHERE {user_column} = ?"
+        con.execute(query, None, (user_name,))
+        return jsonify({'success': True, 'message': f'User "{user_name}" successfully deleted'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+
 
 def get_user_column_for_table(table_name):
     user_id_column = con.execute(f"SELECT user_id_column FROM table_metadata WHERE table_name = '{table_name}'").fetchone()
     return user_id_column[0] if user_id_column else None
+
+@app.route('/user-data/<int:user_id>', methods=['GET'])
+def get_user_data(user_id):
+    print("hi")
+    user_data = con.execute("SELECT * FROM user WHERE User_ID = ?", None, (user_id,)).fetchone()
+    print(user_data)
+    if user_data is None:
+        return jsonify({'error': 'User not found'}), 404
+
+    user_response = {
+        'user_id': user_data[0],
+        'username': user_data[1],
+        'admin': user_data[2]
+    }
+    
+    return jsonify(user_response), 200
+
 
 @app.route('/provenance/<int:log_id>', methods=['GET'])
 def get_query_log(log_id):
