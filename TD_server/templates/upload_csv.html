@@ -11,8 +11,8 @@
 </form>
 <form id="uploadForm" action="/upload-csv/william" method="post" enctype="multipart/form-data">
   <input type="file" name="file" id="fileInput" required>
-  <!-- Add a new field for specifying the user ID column name -->
   <input type="text" name="userid_column" placeholder="User ID Column Name">
+  <input type="text" name="purposes_column" placeholder="Query Purposes Column Name">
   <input type="submit" value="Upload">
 </form>
 

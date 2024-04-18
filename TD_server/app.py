@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS query_log (
 con.execute("""
 CREATE TABLE IF NOT EXISTS table_metadata (
     table_name TEXT PRIMARY KEY,
-    user_id_column TEXT
+    user_id_column TEXT,
+    purpose_column TEXT
 );
 """)
 
@@ -134,8 +135,11 @@ def upload_csv(analyst_name):
 
     file = request.files['file']
     user_id_column = request.form.get('userid_column')
+    purpose_column = request.form.get('purposes_column')
     if(user_id_column == None):
         user_id_column = "User_ID"
+    if(purpose_column == None):
+        purpose_column = "Purposes_Column"
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
 
@@ -143,16 +147,13 @@ def upload_csv(analyst_name):
         filename = file.filename
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
-
-        # Load the CSV file into a pandas DataFrame
+        
         df_global = pd.read_csv(file_path)
         con.execute("""
-        INSERT INTO table_metadata (table_name, user_id_column) VALUES (?, ?)
-        ON CONFLICT(table_name) DO UPDATE SET user_id_column = excluded.user_id_column
-        """, None, ('df_global', user_id_column))
+        INSERT INTO table_metadata (table_name, user_id_column, purpose_column) VALUES (?, ?, ?)
+        ON CONFLICT(table_name) DO UPDATE SET user_id_column = excluded.user_id_column, purpose_column = excluded.purpose_column
+        """, None, ("df_global", user_id_column, purpose_column))
 
-        # Register the DataFrame as a table in smokedduck
-        # con.register('df_global', df_global)
         con.execute('CREATE TABLE df_global AS (SELECT * FROM df_global)')
         return render_template('display_df.html', df=df_global.to_html(classes='table'))
 
@@ -165,21 +166,27 @@ def query_df(analyst_id):
     if not data or 'query' not in data:
         return jsonify({'error': 'No SQL query provided'}), 400
 
+    query_purpose = data['purpose']
+    if not query_purpose:
+        return jsonify({'error': 'No purpose specified'}), 400
+    
     query = data['query']
-    #try:
-        # Execute the query using smokedduck
 
     result_df = con.execute(query, capture_lineage='lineage').df()
-    
-    #selected_a = con.lineage()
+    if 'User_ID' not in result_df.columns:
+        return jsonify({'error': 'Query result must include a "User_ID" column'}), 400
+
+    for id in result_df.loc[:,"User_ID"]:
+        # store purposes as json object
+        if query_purpose not in get_purpose_array("df_global", id):
+            result_df.drop(id,inplace=True)
 
     log_query(query, analyst_id, con.query_id, json.dumps(con.query_plan).replace("'", "''"))
+
     return jsonify({
         'message': 'Query executed successfully',
-        'result': result_df.to_dict(orient='records')  # Convert DataFrame to a list of dictionaries
+        'result': result_df.to_dict(orient='records')
     })
-    #except Exception as e:
-     #   return jsonify({'error': str(e)}), 400
 
 @app.route('/add-user', methods=['POST'])
 def add_user():
@@ -238,6 +245,31 @@ def delete_user_by_name(user_name):
 def get_user_column_for_table(table_name):
     user_id_column = con.execute(f"SELECT user_id_column FROM table_metadata WHERE table_name = '{table_name}'").fetchone()
     return user_id_column[0] if user_id_column else None
+
+def get_purposes_column_for_table(table_name):
+    purposes_column = con.execute(f"SELECT purpose_column FROM table_metadata WHERE table_name = '{table_name}'").fetchone()
+    return purposes_column[0] if purposes_column else None
+
+def get_purpose_array(table_name, user_id):
+    purpose_column_name = get_purposes_column_for_table(table_name)  # Ensure this function's name matches your implementation
+    user_column_name = get_user_column_for_table(table_name)
+    
+    if purpose_column_name and user_column_name:
+        query = f"SELECT {purpose_column_name} FROM df_global WHERE {user_column_name} = ?"
+        result = con.execute(query, None, (user_id,)).fetchall()
+        
+        purpose_set = set()
+        
+        for row in result:
+            if row[0]:
+                purposes = row[0].split(',')
+                purpose_set.update(purpose.strip() for purpose in purposes)  # Remove any surrounding whitespace
+
+        return list(purpose_set)
+    else:
+        return []
+  
+
 
 @app.route('/user-data/<int:user_id>', methods=['GET'])
 def get_user_data(user_id):

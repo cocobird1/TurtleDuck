@@ -1,0 +1,6 @@
+User_ID,Name,Email,Purposes_Column
+0,John Doe,johndoe@example.com,"marketing,analysis"
+1,Jane Smith,janesmith@example.com,"support,development"
+2,Robert Brown,robertbrown@example.com,administration
+3,Lisa White,lisawhite@example.com,"marketing,sales"
+4,Mike Davis,mikedavis@example.com,"development,testing"

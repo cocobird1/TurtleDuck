@@ -10,11 +10,13 @@
                 event.preventDefault();
                 var analystId = $("#analystId").val();
                 var query = $("#sqlQuery").val();
+                var purpose = $("#purpose").val();  // Capture the purpose input
+
                 $.ajax({
                     url: '/query-df/' + analystId,
                     type: 'POST',
                     contentType: 'application/json',
-                    data: JSON.stringify({ query: query }),
+                    data: JSON.stringify({ query: query, purpose: purpose }),  // Include purpose in the data sent
                     success: function(response) {
                         $("#result").html(JSON.stringify(response, null, 2));
                     },
@@ -31,6 +33,8 @@
     <form id="queryForm">
         <label for="analystId">Analyst ID:</label><br>
         <input type="text" id="analystId" name="analystId" required><br><br>
+        <label for="purpose">Query Purpose:</label><br>
+        <input type="text" id="purpose" name="purpose" required><br><br>
         <label for="sqlQuery">SQL Query:</label><br>
         <textarea id="sqlQuery" name="sqlQuery" rows="4" cols="50" required></textarea><br><br>
         <input type="submit" value="Submit Query">
