@@ -63,6 +63,7 @@ def generate_new_log_id():
         return 0
     
 def log_query(query, user_id=None, query_id=None, query_plan=None):
+    print("logging query")
     print(query, user_id, query_id, query_plan)
     log_id = generate_new_log_id()
 
@@ -286,6 +287,21 @@ def get_user_data(user_id):
     }
     
     return jsonify(user_response), 200
+
+@app.route('/user-queries/<int:user_id>', methods=['GET'])
+def get_user_queries(user_id):
+    try:
+        # Query the database for all queries made by the given user ID
+        query_logs = con.execute("SELECT * FROM query_log WHERE user_id = ?", None, (user_id,)).fetchall()
+
+        # If query_logs is not empty, format the result
+        if query_logs:
+            queries = [{'log_id': log[0], 'query_id': log[1], 'query_text': log[2], 'query_plan': log[3], 'executed_at': log[4], 'user_id': log[5]} for log in query_logs]
+            return jsonify(queries), 200
+        else:
+            return jsonify({'message': 'No queries found for this user'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 
 @app.route('/provenance/<int:log_id>', methods=['GET'])
