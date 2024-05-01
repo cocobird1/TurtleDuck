@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Check User Access</title>
+  <style>
+      body {
+          font-family: Arial, sans-serif;
+          padding: 20px;
+      }
+      label, button {
+          margin-top: 10px;
+      }
+  </style>
+</head>
+<body>
+  <h1>Check User Access</h1>
+  <form id="accessForm">
+      <label for="userId">User ID:</label>
+      <input type="text" id="userId" name="userId" required>
+      <button type="submit">Check Access</button>
+  </form>
+  <div id="result"></div>
+
+  <script>
+      document.getElementById('accessForm').onsubmit = function(event) {
+          event.preventDefault(); // Prevent the form from submitting via the browser.
+          var userId = document.getElementById('userId').value;
+          var apiUrl = '/user-access/' + userId;
+
+          fetch(apiUrl)
+              .then(response => response.json())
+              .then(data => {
+                  if (data.access) {
+                      document.getElementById('result').innerHTML = 'Access Status for User ' + userId + ': ' + data.access;
+                  } else {
+                      document.getElementById('result').innerHTML = 'Error: ' + data.error;
+                  }
+              })
+              .catch(error => {
+                  document.getElementById('result').innerHTML = 'Error fetching data.';
+              });
+      };
+  </script>
+</body>
+{% endblock %}

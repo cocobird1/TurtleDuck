@@ -33,7 +33,8 @@ con.execute("""
 CREATE TABLE IF NOT EXISTS table_metadata (
     table_name TEXT PRIMARY KEY,
     user_id_column TEXT,
-    purpose_column TEXT
+    purpose_column TEXT,
+    access_column TEXT
 );
 """)
 
@@ -116,6 +117,10 @@ def get_prov():
 def get_comp():
    return render_template('compliance.html')   
 
+@app.route('/access_control')
+def get_ac():
+   return render_template('access_control.html')   
+
 @app.route('/login-backend', methods=['POST'])
 def login_backend():
     data = request.get_json() 
@@ -137,10 +142,13 @@ def upload_csv(analyst_name):
     file = request.files['file']
     user_id_column = request.form.get('userid_column')
     purpose_column = request.form.get('purposes_column')
+    access_column = request.form.get('access_column')
     if(user_id_column == None):
         user_id_column = "User_ID"
     if(purpose_column == None):
         purpose_column = "Purposes_Column"
+    if(access_column == None):
+        access_column = "Access_Column"
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
 
@@ -151,9 +159,13 @@ def upload_csv(analyst_name):
         
         df_global = pd.read_csv(file_path)
         con.execute("""
-        INSERT INTO table_metadata (table_name, user_id_column, purpose_column) VALUES (?, ?, ?)
-        ON CONFLICT(table_name) DO UPDATE SET user_id_column = excluded.user_id_column, purpose_column = excluded.purpose_column
-        """, None, ("df_global", user_id_column, purpose_column))
+        INSERT INTO table_metadata (table_name, user_id_column, purpose_column, access_column) VALUES (?, ?, ?, ?)
+        ON CONFLICT(table_name) DO UPDATE SET 
+            user_id_column = excluded.user_id_column, 
+            purpose_column = excluded.purpose_column,
+            access_column = excluded.access_column
+        """, None, ("df_global", user_id_column, purpose_column, access_column))
+
 
         con.execute('CREATE TABLE df_global AS (SELECT * FROM df_global)')
         return render_template('display_df.html', df=df_global.to_html(classes='table'))
@@ -181,6 +193,12 @@ def query_df(analyst_id):
         # store purposes as json object
         if query_purpose not in get_purpose_array("df_global", id):
             result_df.drop(id,inplace=True)
+
+    access_column = get_access_column_for_table("df_global")
+    if access_column and access_column in result_df.columns:
+        result_df = result_df[result_df[access_column] != '0']
+    else:
+        return jsonify({'error': f'Access column "{access_column}" not found in the result'}), 400
 
     log_query(query, analyst_id, con.query_id, json.dumps(con.query_plan).replace("'", "''"))
 
@@ -250,6 +268,10 @@ def get_user_column_for_table(table_name):
 def get_purposes_column_for_table(table_name):
     purposes_column = con.execute(f"SELECT purpose_column FROM table_metadata WHERE table_name = '{table_name}'").fetchone()
     return purposes_column[0] if purposes_column else None
+
+def get_access_column_for_table(table_name):
+    access_column = con.execute(f"SELECT access_column FROM table_metadata WHERE table_name = '{table_name}'").fetchone()
+    return access_column[0] if access_column else None
 
 def get_purpose_array(table_name, user_id):
     purpose_column_name = get_purposes_column_for_table(table_name)  # Ensure this function's name matches your implementation
@@ -334,6 +356,28 @@ def get_query_log(log_id):
     
     # Return the filtered DataFrame as JSON
     return jsonify(df_filtered.to_json(orient='records'))
+
+@app.route('/user-access/<user_id>', methods=['GET'])
+def check_user_access(user_id):
+    try:
+        # Assuming 'df_global' has a column to identify users (like 'user_id') and a column for access status ('access_column').
+        user_column = get_user_column_for_table("df_global")
+        access_column = get_access_column_for_table("df_global")
+        
+        if not user_column or not access_column:
+            return jsonify({'error': 'User or access column not configured'}), 500
+
+        # Fetch the user's access status based on the user ID.
+        query = f"SELECT {access_column} FROM df_global WHERE {user_column} = ?"
+        result = con.execute(query, None, (user_id,)).fetchone()
+
+        if result:
+            access_status = result[0]
+            return jsonify({'user_id': user_id, 'access': access_status}), 200
+        else:
+            return jsonify({'error': 'User not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
 
 if __name__ == '__main__':
     app.run(debug=True)
