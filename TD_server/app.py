@@ -361,7 +361,7 @@ def get_query_log(log_id):
     return jsonify(df_filtered.to_json(orient='records'))
 
 @app.route('/user-access/<user_id>', methods=['GET'])
-def check_user_access(user_id):  # TODO: fix now that this is boolean
+def check_user_access(user_id):
     try:
         # Assuming 'df_global' has a column to identify users (like 'user_id') and a column for access status ('access_column').
         user_column = get_user_column_for_table("df_global")
