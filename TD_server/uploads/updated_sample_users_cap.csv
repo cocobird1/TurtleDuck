@@ -1,6 +1,0 @@
-User_ID,Name,Email,Purposes_Column,Access_Column
-0,John Doe,johndoe@example.com,"marketing,analysis",Yes
-1,Jane Smith,janesmith@example.com,"support,development",No
-2,Robert Brown,robertbrown@example.com,administration,Yes
-3,Lisa White,lisawhite@example.com,"marketing,sales",Yes
-4,Mike Davis,mikedavis@example.com,"development,testing",Yes
