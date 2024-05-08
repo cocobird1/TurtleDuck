@@ -55,9 +55,7 @@ def generate_new_user_id():
         return 0
     
 def generate_new_log_id():
-    print('bar')
     result = con.execute("SELECT MAX(log_id) FROM query_log", None).fetchone()[0]
-    print('baz')
     if(result != None):
         return result + 1
     else:
@@ -143,11 +141,11 @@ def upload_csv(analyst_name):
     user_id_column = request.form.get('userid_column')
     purpose_column = request.form.get('purposes_column')
     access_column = request.form.get('access_column')
-    if(user_id_column == None):
+    if(user_id_column == ''):
         user_id_column = "User_ID"
-    if(purpose_column == None):
+    if(purpose_column == ''):
         purpose_column = "Purposes_Column"
-    if(access_column == None):
+    if(access_column == ''):
         access_column = "Access_Column"
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
@@ -189,6 +187,9 @@ def query_df(analyst_id):
     if 'User_ID' not in result_df.columns:
         return jsonify({'error': 'Query result must include a "User_ID" column'}), 400
 
+    query_id = con.query_id
+    query_plan = json.dumps(con.query_plan).replace("'", "''")
+
     for id in result_df.loc[:,"User_ID"]:
         # store purposes as json object
         if query_purpose not in get_purpose_array("df_global", id):
@@ -196,11 +197,11 @@ def query_df(analyst_id):
 
     access_column = get_access_column_for_table("df_global")
     if access_column and access_column in result_df.columns:
-        result_df = result_df[result_df[access_column] != '0']
+        result_df = result_df[result_df[access_column]]
     else:
         return jsonify({'error': f'Access column "{access_column}" not found in the result'}), 400
 
-    log_query(query, analyst_id, con.query_id, json.dumps(con.query_plan).replace("'", "''"))
+    log_query(query, analyst_id, query_id, query_plan)
 
     return jsonify({
         'message': 'Query executed successfully',
@@ -352,8 +353,7 @@ def get_query_log(log_id):
     # Select only the Name and UserID columns
     df_filtered = df_joined[['Name', get_user_column_for_table("df_global"), 'Analyst']]
     print(df_filtered)
-    
-    
+
     # Return the filtered DataFrame as JSON
     return jsonify(df_filtered.to_json(orient='records'))
 
@@ -363,7 +363,7 @@ def check_user_access(user_id):
         # Assuming 'df_global' has a column to identify users (like 'user_id') and a column for access status ('access_column').
         user_column = get_user_column_for_table("df_global")
         access_column = get_access_column_for_table("df_global")
-        
+
         if not user_column or not access_column:
             return jsonify({'error': 'User or access column not configured'}), 500
 
@@ -380,4 +380,4 @@ def check_user_access(user_id):
         return jsonify({'error': str(e)}), 400
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5005)
