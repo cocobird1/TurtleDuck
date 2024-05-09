@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, request, jsonify, render_template
 import pandas as pd
 import smokedduck
 import os
@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS internal.table_metadata (
 """)
 
 con.execute("INSERT INTO internal.user (user_id, username, admin, password) VALUES (?, ?, ?, ?)", None, (0, "William", False, "Password"))
+con.execute("INSERT INTO internal.user (user_id, username, admin, password) VALUES (?, ?, ?, ?)", None, (-1, "No Set Analyst", False, "SECRETPassword"))
 
 uploaded = False
 
@@ -64,23 +65,12 @@ def generate_new_log_id():
     else:
         return 0
     
-def log_query(query, user_id=None, query_id=None, query_plan=None):
-    print("logging query")
-    print(query, user_id, query_id, query_plan)
+def log_query(query, analyst_id, query_id, query_plan):
     log_id = generate_new_log_id()
 
-    if user_id is not None:
-        user_exists = con.execute("SELECT EXISTS(SELECT 1 FROM internal.user WHERE user_id = ?)", None, (user_id,)).fetchone()[0]
-        if not user_exists:
-            username = f"User_{user_id}"
-            admin = False  # Default to non-admin; adjust based on your requirements
-            password = "default_password"  # Consider a secure way to handle passwords
-            con.execute("INSERT INTO internal.user (user_id, username, admin, password) VALUES (?, ?, ?, ?)", None, (user_id, username, admin, password))
-
-    #con.execute("SELECT 1")
     query = query.replace("'", "''")
     
-    con.execute(f"INSERT INTO internal.query_log (query_id, query_text, query_plan, user_id, log_id) VALUES ({query_id}, '{query}', '{query_plan}', '{user_id}', {log_id})")
+    con.execute(f"INSERT INTO internal.query_log (query_id, query_text, query_plan, user_id, log_id) VALUES ({query_id}, '{query}', '{query_plan}', '{analyst_id}', {log_id})")
     print(con.execute("SELECT * FROM internal.query_log"), None)
 
 @app.route('/')
@@ -171,20 +161,18 @@ def upload_csv(analyst_name):
         con.execute('CREATE TABLE df_global AS (SELECT * FROM df_global)')
         return render_template('display_df.html', df=df_global.to_html(classes='table'))
 
+@app.route('/query-df/', defaults={'analyst_id': -1}, methods=['POST'])
 @app.route('/query-df/<analyst_id>', methods=['POST'])
 def query_df(analyst_id):
-    if not analyst_exists(analyst_id):
+    if analyst_id != -1 and not analyst_exists(analyst_id):
         return jsonify({'error': f'Analyst name {analyst_id} not found'}), 404
 
     data = request.json
     if not data or 'query' not in data:
         return jsonify({'error': 'No SQL query provided'}), 400
 
-    query_purpose = data['purpose']
-    if not query_purpose:
-        return jsonify({'error': 'No purpose specified'}), 400
-    
     query = data['query']
+    query_purpose = data['purpose']
 
     result_df = con.execute(query, capture_lineage='lineage').df()
     if 'User_ID' not in result_df.columns:
@@ -193,10 +181,11 @@ def query_df(analyst_id):
     query_id = con.query_id
     query_plan = json.dumps(con.query_plan).replace("'", "''")
 
-    for id in result_df.loc[:,"User_ID"]:
-        # store purposes as json object
-        if query_purpose not in get_purpose_array("df_global", id):
-            result_df.drop(id,inplace=True)
+    if query_purpose != '':
+        for id in result_df.loc[:, "User_ID"]:
+            # store purposes as json object
+            if query_purpose not in get_purpose_array("df_global", id):
+                result_df.drop(id,inplace=True)
 
     access_column = get_access_column_for_table("df_global")
     if access_column and access_column in result_df.columns:
