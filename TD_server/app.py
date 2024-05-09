@@ -14,16 +14,22 @@ con.execute("""
 CREATE SCHEMA IF NOT EXISTS internal;
 """)
 con.execute("""
+CREATE SEQUENCE internal.seq_user_id START 1;
+""")
+con.execute("""
 CREATE TABLE IF NOT EXISTS internal.user (
-    user_id INTEGER PRIMARY KEY,
+    user_id INTEGER PRIMARY KEY DEFAULT nextval('internal.seq_user_id'),
     username TEXT UNIQUE,
     admin BOOLEAN,
     password TEXT
 );
 """)
 con.execute("""
+CREATE SEQUENCE internal.seq_log_id START 1;
+""")
+con.execute("""
 CREATE TABLE IF NOT EXISTS internal.query_log (
-    log_id INTEGER PRIMARY KEY,
+    log_id INTEGER PRIMARY KEY DEFAULT nextval('internal.seq_log_id'),
     query_id INTEGER NOT NULL,
     query_text TEXT NOT NULL,
     query_plan TEXT NOT NULL,
@@ -44,33 +50,15 @@ CREATE TABLE IF NOT EXISTS internal.table_metadata (
 con.execute("INSERT INTO internal.user (user_id, username, admin, password) VALUES (?, ?, ?, ?)", None, (0, "William", False, "Password"))
 con.execute("INSERT INTO internal.user (user_id, username, admin, password) VALUES (?, ?, ?, ?)", None, (-1, "No Set Analyst", False, "SECRETPassword"))
 
-uploaded = False
-
 def analyst_exists(analyst_id):
     # Execute a query to find if the analyst_name exists
     result = con.execute("SELECT EXISTS(SELECT 1 FROM internal.user WHERE user_id = ? LIMIT 1)", None, (analyst_id,)).fetchone()[0]
     return result != None
-
-def generate_new_user_id():
-    result = con.execute("SELECT MAX(user_id) FROM internal.user", None).fetchone()[0]
-    if(result != None):
-        return result + 1
-    else:
-        return 0
-    
-def generate_new_log_id():
-    result = con.execute("SELECT MAX(log_id) FROM internal.query_log", None).fetchone()[0]
-    if(result != None):
-        return result + 1
-    else:
-        return 0
     
 def log_query(query, analyst_id, query_id, query_plan):
-    log_id = generate_new_log_id()
-
     query = query.replace("'", "''")
     
-    con.execute(f"INSERT INTO internal.query_log (query_id, query_text, query_plan, user_id, log_id) VALUES ({query_id}, '{query}', '{query_plan}', '{analyst_id}', {log_id})")
+    con.execute(f"INSERT INTO internal.query_log (query_id, query_text, query_plan, user_id) VALUES ({query_id}, '{query}', '{query_plan}', '{analyst_id}')")
     print(con.execute("SELECT * FROM internal.query_log"), None)
 
 @app.route('/')
@@ -206,12 +194,11 @@ def add_user():
     if not data or 'username' not in data or 'admin' not in data:
         return jsonify({'error': 'Missing username or admin status'}), 400
 
-    user_id = generate_new_user_id()
     username = data['username']
     admin = data['admin']
 
     try:
-        con.execute("INSERT INTO internal.user (user_id, username, admin) VALUES (?, ?, ?)", None, (user_id, username, admin))
+        con.execute("INSERT INTO internal.user (username, admin) VALUES (?, ?, ?)", None, (username, admin))
         return jsonify({'message': f'User {username} successfully added'}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 400
@@ -328,6 +315,7 @@ def get_user_queries(user_id):
 
 @app.route('/provenance/<int:log_id>', methods=['GET'])
 def get_query_log(log_id):
+    print(con.execute("SELECT * FROM internal.query_log").df())
     query_log = con.execute(f"SELECT * FROM internal.query_log WHERE log_id = {log_id}").df()
     print(query_log)
     # Set parameters for lineage tracing based on the query log
