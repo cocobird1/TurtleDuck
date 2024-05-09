@@ -79,14 +79,8 @@ def hello_world():
 
 @app.route('/upload')
 def upload():
-    try:
-        # Attempt to select from the table.
-        df = con.execute("SELECT * FROM df_global").df()
-        return render_template('display_df.html', df=df.to_html(classes='table'))
-    except ProgrammingError:
-        # If the table does not exist, catch the exception and return the upload template.
-        return render_template('upload_csv.html')
-   
+    table_metadata_df = con.execute('select * from internal.table_metadata').df()
+    return render_template('upload_csv.html', df=table_metadata_df.to_html(classes='table'))
 
 @app.route('/login')
 def login():
@@ -131,6 +125,9 @@ def upload_csv(analyst_name):
         return jsonify({'error': 'No file part in the request'}), 400
 
     file = request.files['file']
+    table_name = request.form.get('table_name')
+    if table_name == '':
+        return jsonify({'error': 'No table name provided'}), 400
     user_id_column = request.form.get('userid_column')
     purpose_column = request.form.get('purposes_column')
     access_column = request.form.get('access_column')
@@ -148,18 +145,18 @@ def upload_csv(analyst_name):
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
         
-        df_global = pd.read_csv(file_path)
+        tmp = pd.read_csv(file_path)
         con.execute("""
         INSERT INTO internal.table_metadata (table_name, user_id_column, purpose_column, access_column) VALUES (?, ?, ?, ?)
         ON CONFLICT(table_name) DO UPDATE SET 
             user_id_column = excluded.user_id_column, 
             purpose_column = excluded.purpose_column,
             access_column = excluded.access_column
-        """, None, ("df_global", user_id_column, purpose_column, access_column))
+        """, None, (table_name, user_id_column, purpose_column, access_column))
 
 
-        con.execute('CREATE TABLE df_global AS (SELECT * FROM df_global)')
-        return render_template('display_df.html', df=df_global.to_html(classes='table'))
+        con.execute(f'CREATE TABLE {table_name} AS (SELECT * FROM tmp)')
+        return render_template('display_df.html', df=tmp.to_html(classes='table'))
 
 @app.route('/query-df/', defaults={'analyst_id': -1}, methods=['POST'])
 @app.route('/query-df/<analyst_id>', methods=['POST'])
@@ -179,21 +176,23 @@ def query_df(analyst_id):
         return jsonify({'error': 'Query result must include a "User_ID" column'}), 400
 
     query_id = con.query_id
-    query_plan = json.dumps(con.query_plan).replace("'", "''")
+    query_plan = con.query_plan
+    table_name = get_table_name_from_query_plan(query_plan)
+    print(table_name)
 
     if query_purpose != '':
         for id in result_df.loc[:, "User_ID"]:
             # store purposes as json object
-            if query_purpose not in get_purpose_array("df_global", id):
-                result_df.drop(id,inplace=True)
+            if query_purpose not in get_purpose_array(table_name, id):
+                result_df.drop(id, inplace=True)
 
-    access_column = get_access_column_for_table("df_global")
+    access_column = get_access_column_for_table(table_name)
     if access_column and access_column in result_df.columns:
         result_df = result_df[result_df[access_column]]
     else:
         return jsonify({'error': f'Access column "{access_column}" not found in the result'}), 400
 
-    log_query(query, analyst_id, query_id, query_plan)
+    log_query(query, analyst_id, query_id, json.dumps(query_plan).replace("'", "''"))
 
     return jsonify({
         'message': 'Query executed successfully',
@@ -219,10 +218,13 @@ def add_user():
 
 @app.route('/user-data-by-name/<user_name>', methods=['GET'])
 def get_user_data_by_name(user_name):
-    try:
-        user_column = get_user_column_for_table("df_global")
+    table_metadata_df = con.execute('select * from internal.table_metadata').df()
+    # TODO: fix simplifying assumption that the user is only in a single table and that user data is only in each table once
+    for _, row in table_metadata_df.iterrows():
+        table_name = row['table_name']
+        user_column = get_user_column_for_table(table_name)
 
-        query = f"SELECT * FROM df_global WHERE {user_column} = ?"
+        query = f"SELECT * FROM {table_name} WHERE {user_column} = ?"
         user_data = con.execute(query, None, (user_name,)).fetchone()
 
         if user_data:
@@ -236,23 +238,28 @@ def get_user_data_by_name(user_name):
                 # Add or adjust fields according to the actual structure of your user_data
             }
             return jsonify(user_data_dict), 200
-        else:
-            return jsonify({'error': 'User not found'}), 404
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    return jsonify({'error': 'User not found'}), 404
 
 @app.route('/delete-user-by-name/<user_name>', methods=['DELETE'])
 def delete_user_by_name(user_name):
-    try:
-        user_column = get_user_column_for_table("df_global")
+    table_metadata_df = con.execute('select * from internal.table_metadata').df()
+    for _, row in table_metadata_df.iterrows():
+        table_name = row['table_name']
+        user_column = get_user_column_for_table(table_name)
 
-        query = f"DELETE FROM df_global WHERE {user_column} = ?"
+        query = f"DELETE FROM {table_name} WHERE {user_column} = ?"
         con.execute(query, None, (user_name,))
-        return jsonify({'success': True, 'message': f'User "{user_name}" successfully deleted'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    return jsonify({'success': True, 'message': f'User "{user_name}" successfully deleted'}), 200
 
-
+def get_table_name_from_query_plan(query_plan):
+    table_names = []
+    if query_plan['table'] != '':
+        table_names.append(query_plan['table'])
+    for child in query_plan['children']:
+        child_table_names = get_table_name_from_query_plan(child)
+        table_names.extend(child_table_names)
+    assert len(table_names) < 2, 'Multiple tables found in query plan'
+    return table_names[0] if table_names else None
 
 def get_user_column_for_table(table_name):
     user_id_column = con.execute(f"SELECT user_id_column FROM internal.table_metadata WHERE table_name = '{table_name}'").fetchone()
@@ -267,11 +274,11 @@ def get_access_column_for_table(table_name):
     return access_column[0] if access_column else None
 
 def get_purpose_array(table_name, user_id):
-    purpose_column_name = get_purposes_column_for_table(table_name)  # Ensure this function's name matches your implementation
+    purpose_column_name = get_purposes_column_for_table(table_name)
     user_column_name = get_user_column_for_table(table_name)
     
     if purpose_column_name and user_column_name:
-        query = f"SELECT {purpose_column_name} FROM df_global WHERE {user_column_name} = ?"
+        query = f"SELECT {purpose_column_name} FROM {table_name} WHERE {user_column_name} = ?"
         result = con.execute(query, None, (user_id,)).fetchall()
         
         purpose_set = set()
@@ -331,19 +338,21 @@ def get_query_log(log_id):
     query_lineage = con.lineage().df()
     print(query_lineage)
 
+    table_name = get_table_name_from_query_plan(con.query_plan)
+
     # Fetch user data
-    df_users = con.execute("SELECT * FROM df_global").fetchdf()
-    df_users = df_users.reset_index().rename(columns={'index': 'df_global'})
+    df_users = con.execute(f"SELECT * FROM {table_name}").fetchdf()
+    df_users = df_users.reset_index().rename(columns={'index': table_name})
     print(df_users)
     
     # Join the lineage data with user data
-    df_joined = pd.merge(query_lineage, df_users, on='df_global', how='left')
+    df_joined = pd.merge(query_lineage, df_users, on=table_name, how='left')
     df_joined['Analyst'] = query_log.loc[0, 'user_id']
     print("joined")
     print(df_joined)
     
     # Select only the Name and UserID columns
-    df_filtered = df_joined[['Name', get_user_column_for_table("df_global"), 'Analyst']]
+    df_filtered = df_joined[['Name', get_user_column_for_table(table_name), 'Analyst']]
     print(df_filtered)
 
     # Return the filtered DataFrame as JSON
@@ -351,25 +360,25 @@ def get_query_log(log_id):
 
 @app.route('/user-access/<user_id>', methods=['GET'])
 def check_user_access(user_id):
-    try:
-        # Assuming 'df_global' has a column to identify users (like 'user_id') and a column for access status ('access_column').
-        user_column = get_user_column_for_table("df_global")
-        access_column = get_access_column_for_table("df_global")
+    table_metadata_df = con.execute('select * from internal.table_metadata').df()
+    for _, row in table_metadata_df.iterrows():
+        table_name = row['table_name']
+
+        # Assuming each table has a column to identify users (like 'user_id') and a column for access status ('access_column').
+        user_column = get_user_column_for_table(table_name)
+        access_column = get_access_column_for_table(table_name)
 
         if not user_column or not access_column:
             return jsonify({'error': 'User or access column not configured'}), 500
 
         # Fetch the user's access status based on the user ID.
-        query = f"SELECT {access_column} FROM df_global WHERE {user_column} = ?"
+        query = f"SELECT {access_column} FROM {table_name} WHERE {user_column} = ?"
         result = con.execute(query, None, (user_id,)).fetchone()
 
         if result:
             access_status = result[0]
             return jsonify({'user_id': user_id, 'access': access_status}), 200
-        else:
-            return jsonify({'error': 'User not found'}), 404
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    return jsonify({'error': 'User not found'}), 404
 
 if __name__ == '__main__':
     app.run(debug=True, port=5005)
